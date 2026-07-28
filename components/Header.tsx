@@ -5,7 +5,7 @@ export default function Header({ isOwner }: { isOwner: boolean }) {
     <header className="border-b border-amber-200 bg-white">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
         <Link href="/" className="font-serif text-xl font-semibold text-amber-900">
-          Family Cookbook
+          Rebec's Cookbook
         </Link>
         {isOwner && (
           <Link

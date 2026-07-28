@@ -1,29 +1,28 @@
-import Link from "next/link";
 import { CATEGORIES } from "@/lib/types";
 
 export default function CategoryFilter({
   selected,
-  q,
+  onSelect,
 }: {
   selected?: string;
-  q?: string;
+  onSelect: (category?: string) => void;
 }) {
-  const qParam = q ? `q=${encodeURIComponent(q)}` : "";
-
   return (
     <div className="flex flex-wrap gap-2">
-      <Link
-        href={`/${qParam ? `?${qParam}` : ""}`}
+      <button
+        type="button"
+        onClick={() => onSelect(undefined)}
         className={`rounded-full px-3 py-1 text-sm ${
           !selected ? "bg-amber-700 text-white" : "bg-stone-100 text-stone-700 hover:bg-stone-200"
         }`}
       >
         All
-      </Link>
+      </button>
       {CATEGORIES.map((cat) => (
-        <Link
+        <button
           key={cat}
-          href={`/?category=${encodeURIComponent(cat)}${qParam ? `&${qParam}` : ""}`}
+          type="button"
+          onClick={() => onSelect(cat)}
           className={`rounded-full px-3 py-1 text-sm ${
             selected === cat
               ? "bg-amber-700 text-white"
@@ -31,7 +30,7 @@ export default function CategoryFilter({
           }`}
         >
           {cat}
-        </Link>
+        </button>
       ))}
     </div>
   );

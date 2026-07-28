@@ -37,3 +37,8 @@ export type RecipeImage = {
   storage_path: string;
   is_primary: boolean;
 };
+
+// Shape used on the browse grid — just enough to render a card.
+export type RecipeCardData = Pick<Recipe, "id" | "title" | "category"> & {
+  recipe_images: Pick<RecipeImage, "storage_path" | "is_primary">[];
+};

@@ -1,13 +1,9 @@
 import Link from "next/link";
 import Image from "next/image";
 import { recipeImageUrl } from "@/lib/storage";
-import type { Recipe } from "@/lib/types";
+import type { RecipeCardData } from "@/lib/types";
 
-type CardRecipe = Pick<Recipe, "id" | "title" | "category"> & {
-  recipe_images: { storage_path: string; is_primary: boolean }[];
-};
-
-export default function RecipeCard({ recipe }: { recipe: CardRecipe }) {
+export default function RecipeCard({ recipe }: { recipe: RecipeCardData }) {
   const primaryImage =
     recipe.recipe_images.find((img) => img.is_primary) ?? recipe.recipe_images[0];
 

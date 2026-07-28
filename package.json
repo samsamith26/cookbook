@@ -9,18 +9,20 @@
     "seed": "node --env-file=.env.local scripts/seed.mjs"
   },
   "dependencies": {
+    "@supabase/ssr": "0.12.4",
+    "@supabase/supabase-js": "2.111.0",
     "next": "16.2.12",
     "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "@supabase/ssr": "0.12.4",
-    "@supabase/supabase-js": "2.111.0"
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.10.5",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "png-to-ico": "^3.0.2",
+    "sharp": "^0.35.3",
     "tailwindcss": "^4.3.3",
-    "@tailwindcss/postcss": "^4.3.3"
+    "typescript": "^5.9.3"
   }
 }

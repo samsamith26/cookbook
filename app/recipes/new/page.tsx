@@ -1,11 +1,9 @@
-import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/owners";
+import { requireOwner } from "@/lib/session";
 import { createRecipe } from "@/lib/actions/recipes";
 import RecipeForm from "@/components/RecipeForm";
 
 export default async function NewRecipePage() {
-  const user = await getCurrentUser();
-  if (!user?.isOwner) redirect("/login");
+  await requireOwner("/recipes/new");
 
   return (
     <div className="mx-auto max-w-2xl">

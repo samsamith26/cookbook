@@ -1,34 +1,31 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { getOrigin } from "@/lib/site-url";
+import { checkPassword, createSession, destroySession } from "@/lib/session";
 
-export async function signInWithMagicLink(formData: FormData) {
-  const email = String(formData.get("email") || "").trim();
-  if (!email) {
-    redirect("/login?error=" + encodeURIComponent("Please enter an email address."));
+// Only allow same-site relative paths, so ?next= can't redirect off-site.
+function safeNext(value: FormDataEntryValue | null): string {
+  const next = String(value || "/");
+  return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/";
+}
+
+export async function signIn(formData: FormData) {
+  const password = String(formData.get("password") || "");
+  const next = safeNext(formData.get("next"));
+
+  if (!password || !checkPassword(password)) {
+    // Small fixed delay to slow down guessing.
+    await new Promise((r) => setTimeout(r, 1000));
+    redirect(
+      `/login?error=${encodeURIComponent("Incorrect password.")}&next=${encodeURIComponent(next)}`
+    );
   }
 
-  const supabase = await createClient();
-  const origin = await getOrigin();
-
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: {
-      emailRedirectTo: `${origin}/auth/callback?next=/`,
-    },
-  });
-
-  if (error) {
-    redirect("/login?error=" + encodeURIComponent(error.message));
-  }
-
-  redirect("/login?sent=1");
+  await createSession();
+  redirect(next);
 }
 
 export async function signOutAction() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  await destroySession();
   redirect("/");
 }

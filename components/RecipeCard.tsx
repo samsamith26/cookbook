@@ -1,21 +1,17 @@
 import Link from "next/link";
 import Image from "next/image";
-import { recipeImageUrl } from "@/lib/storage";
 import type { RecipeCardData } from "@/lib/types";
 
 export default function RecipeCard({ recipe }: { recipe: RecipeCardData }) {
-  const primaryImage =
-    recipe.recipe_images.find((img) => img.is_primary) ?? recipe.recipe_images[0];
-
   return (
     <Link
       href={`/recipes/${recipe.id}`}
       className="group block overflow-hidden rounded-lg border border-amber-200 bg-white shadow-sm transition hover:shadow-md"
     >
       <div className="relative aspect-4/3 bg-amber-100">
-        {primaryImage ? (
+        {recipe.image ? (
           <Image
-            src={recipeImageUrl(primaryImage.storage_path)}
+            src={recipe.image}
             alt={recipe.title}
             fill
             className="object-cover"

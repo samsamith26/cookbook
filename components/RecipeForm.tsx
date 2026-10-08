@@ -1,36 +1,73 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
+import { useFormStatus } from "react-dom";
 import { CATEGORIES } from "@/lib/types";
-import type { Recipe, RecipeIngredient, RecipeStep, RecipeImage } from "@/lib/types";
-
-type FormRecipe = Recipe & {
-  recipe_ingredients: RecipeIngredient[];
-  recipe_steps: RecipeStep[];
-  recipe_images: RecipeImage[];
-};
+import type { Recipe } from "@/lib/types";
 
 type Props = {
   action: (formData: FormData) => void | Promise<void>;
-  recipe?: FormRecipe;
+  recipe?: Recipe;
   submitLabel: string;
 };
 
+const UPLOAD_MAX_DIMENSION = 2400;
+
+/**
+ * Shrinks a picked photo in the browser before upload so full-size phone
+ * photos stay under the server's request size limit. The server re-compresses
+ * it again (lib/images.ts) before committing. Falls back to the original file
+ * if the browser can't decode it.
+ */
+async function downscale(file: File): Promise<File> {
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, UPLOAD_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.85)
+    );
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
+
+async function handleImageChange(e: ChangeEvent<HTMLInputElement>) {
+  const input = e.currentTarget;
+  const file = input.files?.[0];
+  if (!file) return;
+  const smaller = await downscale(file);
+  if (smaller === file) return;
+  const transfer = new DataTransfer();
+  transfer.items.add(smaller);
+  input.files = transfer.files;
+}
+
+function SubmitButton({ label }: { label: string }) {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="rounded-md bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 disabled:opacity-60"
+    >
+      {pending ? "Saving…" : label}
+    </button>
+  );
+}
+
 export default function RecipeForm({ action, recipe, submitLabel }: Props) {
   const [ingredients, setIngredients] = useState<string[]>(
-    recipe?.recipe_ingredients?.length
-      ? [...recipe.recipe_ingredients]
-          .sort((a, b) => a.sort_order - b.sort_order)
-          .map((i) => i.text)
-      : [""]
+    recipe?.ingredients.length ? recipe.ingredients : [""]
   );
-  const [steps, setSteps] = useState<string[]>(
-    recipe?.recipe_steps?.length
-      ? [...recipe.recipe_steps].sort((a, b) => a.step_number - b.step_number).map((s) => s.text)
-      : [""]
-  );
+  const [steps, setSteps] = useState<string[]>(recipe?.steps.length ? recipe.steps : [""]);
 
-  const hasExistingImage = recipe?.recipe_images?.some((img) => img.is_primary);
+  const hasExistingImage = !!recipe?.images.length;
 
   return (
     <form action={action} className="space-y-6">
@@ -140,20 +177,21 @@ export default function RecipeForm({ action, recipe, submitLabel }: Props) {
 
       <div>
         <label className="mb-1 block text-sm font-medium text-stone-700">Photo</label>
-        <input type="file" name="image" accept="image/*" className="block text-sm" />
+        <input
+          type="file"
+          name="image"
+          accept="image/*"
+          onChange={handleImageChange}
+          className="block text-sm"
+        />
         {hasExistingImage && (
           <p className="mt-1 text-xs text-stone-500">
-            Uploading a new photo will replace the current one.
+            Uploading a new photo will make it the main photo for this recipe.
           </p>
         )}
       </div>
 
-      <button
-        type="submit"
-        className="rounded-md bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800"
-      >
-        {submitLabel}
-      </button>
+      <SubmitButton label={submitLabel} />
     </form>
   );
 }

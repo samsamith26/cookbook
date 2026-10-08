@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import RecipeCard from "@/components/RecipeCard";
 import SearchBox from "@/components/SearchBox";
 import CategoryFilter from "@/components/CategoryFilter";
+import { filterByCategory, searchRecipes } from "@/lib/recipe-filters";
 import type { RecipeCardData } from "@/lib/types";
 
 const DEBOUNCE_MS = 150;
@@ -34,14 +35,10 @@ export default function RecipeBrowser({
 
   // `recipes` was fetched once on page load. Everything below filters that
   // in-memory list — no network request per keystroke or per category click.
-  const filtered = useMemo(() => {
-    const q = debouncedQuery.trim().toLowerCase();
-    return recipes.filter((recipe) => {
-      const matchesCategory = !category || recipe.category === category;
-      const matchesQuery = !q || recipe.title.toLowerCase().includes(q);
-      return matchesCategory && matchesQuery;
-    });
-  }, [recipes, category, debouncedQuery]);
+  const filtered = useMemo(
+    () => searchRecipes(filterByCategory(recipes, category), debouncedQuery),
+    [recipes, category, debouncedQuery]
+  );
 
   return (
     <div>

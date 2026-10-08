@@ -8,6 +8,12 @@ export const CATEGORIES = [
 
 export type Category = (typeof CATEGORIES)[number];
 
+export type RecipeImage = {
+  src: string; // site-relative path under /images/recipes/, e.g. "/images/recipes/<id>/<file>.jpg"
+  is_primary: boolean;
+};
+
+// One entry in data/recipes.json.
 export type Recipe = {
   id: string;
   title: string;
@@ -15,30 +21,14 @@ export type Recipe = {
   description: string | null;
   notes: string | null;
   source_page: number | null;
-  created_by: string | null;
   created_at: string;
   updated_at: string;
-};
-
-export type RecipeIngredient = {
-  id: string;
-  text: string;
-  sort_order: number;
-};
-
-export type RecipeStep = {
-  id: string;
-  step_number: number;
-  text: string;
-};
-
-export type RecipeImage = {
-  id: string;
-  storage_path: string;
-  is_primary: boolean;
+  ingredients: string[];
+  steps: string[];
+  images: RecipeImage[];
 };
 
 // Shape used on the browse grid — just enough to render a card.
 export type RecipeCardData = Pick<Recipe, "id" | "title" | "category"> & {
-  recipe_images: Pick<RecipeImage, "storage_path" | "is_primary">[];
+  image: string | null;
 };

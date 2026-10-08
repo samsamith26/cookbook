@@ -3,17 +3,17 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { randomUUID } from "crypto";
-import { createClient } from "@/lib/supabase/server";
 import { CATEGORIES } from "@/lib/types";
-import { RECIPE_IMAGES_BUCKET } from "@/lib/storage";
-
-type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
+import type { Recipe } from "@/lib/types";
+import { requireOwner } from "@/lib/session";
+import { compressImage } from "@/lib/images";
+import { commitRecipes, writesAreDeferred, type FileChange } from "@/lib/repo-writer";
 
 function parseLines(values: FormDataEntryValue[]): string[] {
   return values.map((v) => String(v).trim()).filter((v) => v.length > 0);
 }
 
-function validateTitleAndCategory(formData: FormData) {
+function parseForm(formData: FormData) {
   const title = String(formData.get("title") || "").trim();
   const category = String(formData.get("category") || "");
   const notes = String(formData.get("notes") || "").trim() || null;
@@ -25,127 +25,97 @@ function validateTitleAndCategory(formData: FormData) {
     throw new Error("Please select a valid category.");
   }
 
-  return { title, category, notes };
+  return {
+    title,
+    category,
+    notes,
+    ingredients: parseLines(formData.getAll("ingredient")),
+    steps: parseLines(formData.getAll("step")),
+  };
 }
 
-async function uploadImageIfPresent(
-  supabase: SupabaseServerClient,
-  recipeId: string,
-  formData: FormData
-) {
+/** Compresses the uploaded photo (if any) and returns the file to commit + its public src. */
+async function prepareImage(recipeId: string, formData: FormData) {
   const file = formData.get("image");
-  if (!(file instanceof File) || file.size === 0) return;
+  if (!(file instanceof File) || file.size === 0) return null;
 
-  const ext = file.name.split(".").pop() || "jpg";
-  const path = `${recipeId}/${randomUUID()}.${ext}`;
+  const src = `/images/recipes/${recipeId}/${randomUUID()}.jpg`;
+  const change: FileChange = { path: `public${src}`, content: await compressImage(file) };
+  return { src, change };
+}
 
-  const { error: uploadError } = await supabase.storage
-    .from(RECIPE_IMAGES_BUCKET)
-    .upload(path, file, { contentType: file.type || undefined });
-  if (uploadError) throw new Error(uploadError.message);
+// Only one primary image: demote any existing ones, then add the new one.
+function withNewPrimaryImage(recipe: Recipe, src: string): Recipe["images"] {
+  return [...recipe.images.map((img) => ({ ...img, is_primary: false })), { src, is_primary: true }];
+}
 
-  // Only one primary image in v1: demote any existing ones, then add the new one.
-  await supabase
-    .from("recipe_images")
-    .update({ is_primary: false })
-    .eq("recipe_id", recipeId);
-
-  const { error: imageRowError } = await supabase
-    .from("recipe_images")
-    .insert({ recipe_id: recipeId, storage_path: path, is_primary: true });
-  if (imageRowError) throw new Error(imageRowError.message);
+function afterSave(path: string) {
+  revalidatePath("/", "layout");
+  redirect(`${path}${path.includes("?") ? "&" : "?"}saved=1`);
 }
 
 export async function createRecipe(formData: FormData) {
-  const supabase = await createClient();
+  await requireOwner("/recipes/new");
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const fields = parseForm(formData);
+  const id = randomUUID();
+  const image = await prepareImage(id, formData);
+  const now = new Date().toISOString();
 
-  const { title, category, notes } = validateTitleAndCategory(formData);
-  const ingredients = parseLines(formData.getAll("ingredient"));
-  const steps = parseLines(formData.getAll("step"));
+  await commitRecipes(`Add recipe: ${fields.title}`, (recipes) => {
+    const recipe: Recipe = {
+      id,
+      ...fields,
+      description: null,
+      source_page: null,
+      created_at: now,
+      updated_at: now,
+      images: [],
+    };
+    if (image) recipe.images = withNewPrimaryImage(recipe, image.src);
+    return { recipes: [...recipes, recipe], files: image ? [image.change] : [] };
+  });
 
-  const { data: recipe, error: recipeError } = await supabase
-    .from("recipes")
-    .insert({ title, category, notes, created_by: user.id })
-    .select("id")
-    .single();
-
-  if (recipeError || !recipe) {
-    throw new Error(recipeError?.message ?? "Could not create the recipe.");
-  }
-
-  if (ingredients.length > 0) {
-    const { error } = await supabase
-      .from("recipe_ingredients")
-      .insert(ingredients.map((text, i) => ({ recipe_id: recipe.id, text, sort_order: i })));
-    if (error) throw new Error(error.message);
-  }
-
-  if (steps.length > 0) {
-    const { error } = await supabase
-      .from("recipe_steps")
-      .insert(steps.map((text, i) => ({ recipe_id: recipe.id, step_number: i + 1, text })));
-    if (error) throw new Error(error.message);
-  }
-
-  await uploadImageIfPresent(supabase, recipe.id, formData);
-
-  revalidatePath("/");
-  revalidatePath(`/recipes/${recipe.id}`);
-  redirect(`/recipes/${recipe.id}`);
+  // In production the new page doesn't exist until the redeploy finishes.
+  afterSave(writesAreDeferred() ? "/" : `/recipes/${id}`);
 }
 
 export async function updateRecipe(id: string, formData: FormData) {
-  const supabase = await createClient();
+  await requireOwner(`/recipes/${id}/edit`);
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const fields = parseForm(formData);
+  const image = await prepareImage(id, formData);
 
-  const { title, category, notes } = validateTitleAndCategory(formData);
-  const ingredients = parseLines(formData.getAll("ingredient"));
-  const steps = parseLines(formData.getAll("step"));
+  await commitRecipes(`Update recipe: ${fields.title}`, (recipes) => {
+    const existing = recipes.find((r) => r.id === id);
+    if (!existing) throw new Error("That recipe no longer exists.");
+    const updated: Recipe = {
+      ...existing,
+      ...fields,
+      images: image ? withNewPrimaryImage(existing, image.src) : existing.images,
+      updated_at: new Date().toISOString(),
+    };
+    return {
+      recipes: recipes.map((r) => (r.id === id ? updated : r)),
+      files: image ? [image.change] : [],
+    };
+  });
 
-  const { error: recipeError } = await supabase
-    .from("recipes")
-    .update({ title, category, notes })
-    .eq("id", id);
-  if (recipeError) throw new Error(recipeError.message);
+  afterSave(`/recipes/${id}`);
+}
 
-  const { error: delIngError } = await supabase
-    .from("recipe_ingredients")
-    .delete()
-    .eq("recipe_id", id);
-  if (delIngError) throw new Error(delIngError.message);
+export async function deleteRecipe(id: string) {
+  await requireOwner(`/recipes/${id}/edit`);
 
-  if (ingredients.length > 0) {
-    const { error } = await supabase
-      .from("recipe_ingredients")
-      .insert(ingredients.map((text, i) => ({ recipe_id: id, text, sort_order: i })));
-    if (error) throw new Error(error.message);
-  }
+  await commitRecipes(`Delete recipe ${id}`, (recipes) => {
+    const existing = recipes.find((r) => r.id === id);
+    if (!existing) throw new Error("That recipe no longer exists.");
+    const files: FileChange[] = existing.images
+      .filter((img) => img.src.startsWith("/images/recipes/"))
+      .map((img) => ({ path: `public${img.src}`, delete: true }));
+    return { recipes: recipes.filter((r) => r.id !== id), files };
+  });
 
-  const { error: delStepError } = await supabase
-    .from("recipe_steps")
-    .delete()
-    .eq("recipe_id", id);
-  if (delStepError) throw new Error(delStepError.message);
-
-  if (steps.length > 0) {
-    const { error } = await supabase
-      .from("recipe_steps")
-      .insert(steps.map((text, i) => ({ recipe_id: id, step_number: i + 1, text })));
-    if (error) throw new Error(error.message);
-  }
-
-  await uploadImageIfPresent(supabase, id, formData);
-
-  revalidatePath("/");
-  revalidatePath(`/recipes/${id}`);
-  redirect(`/recipes/${id}`);
+  revalidatePath("/", "layout");
+  redirect("/?deleted=1");
 }
